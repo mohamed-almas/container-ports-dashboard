@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Container Port Throughput & Capacity Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<style>
+:root{
+  --bg-primary:#eef1f5;
+  --bg-card:#ffffff;
+  --bg-header:#0b2545;
+  --bg-header2:#13315c;
+  --text-primary:#1b2733;
+  --text-secondary:#5b6b7c;
+  --text-on-dark:#ffffff;
+  --c1:#1b6ca8;
+  --c2:#ef8a17;
+  --c3:#2a9d8f;
+  --c4:#e76f51;
+  --c5:#8d6fb8;
+  --c6:#4b8b3b;
+  --c7:#c9444d;
+  --c8:#5b6b7c;
+  --positive:#1e8a4c;
+  --negative:#d1473a;
+  --radius:10px;
+  --gap:16px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.5;font-size:14px;}
+.dashboard-container{max-width:1500px;margin:0 auto;padding:18px;}
+.dashboard-header{background:linear-gradient(120deg,var(--bg-header),var(--bg-header2));color:var(--text-on-dark);padding:22px 28px;border-radius:var(--radius);margin-bottom:var(--gap);}
+.header-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px;}
+.header-top h1{font-size:21px;font-weight:700;letter-spacing:.2px;}
+.header-top .subtitle{font-size:12.5px;color:#bcd2ec;margin-top:4px;}
+.header-meta{font-size:11.5px;color:#9db8d6;text-align:right;}
+.filters{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:rgba(255,255,255,.07);padding:12px 14px;border-radius:8px;}
+.filter-group{display:flex;flex-direction:column;gap:3px;}
+.filter-group label{font-size:10.5px;color:#bcd2ec;text-transform:uppercase;letter-spacing:.5px;}
+.filter-group select{padding:7px 10px;border:1px solid rgba(255,255,255,.25);border-radius:6px;background:rgba(255,255,255,.12);color:#fff;font-size:13px;min-width:170px;}
+.filter-group select option{background:#0b2545;color:#fff;}
+.breadcrumb{font-size:12px;color:#cfe0f3;margin-left:auto;align-self:center;}
+.breadcrumb b{color:#fff;}
+
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--gap);margin-bottom:var(--gap);}
+.kpi-card{background:var(--bg-card);border-radius:var(--radius);padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-left:4px solid var(--c1);}
+.kpi-card.alt{border-left-color:var(--c2);}
+.kpi-card.alt2{border-left-color:var(--c3);}
+.kpi-card.alt3{border-left-color:var(--c4);}
+.kpi-card.alt4{border-left-color:var(--c5);}
+.kpi-label{font-size:11.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+.kpi-value{font-size:25px;font-weight:700;}
+.kpi-change{font-size:12px;font-weight:600;margin-top:3px;}
+.kpi-change.positive{color:var(--positive);}
+.kpi-change.negative{color:var(--negative);}
+.kpi-sub{font-size:11px;color:var(--text-secondary);margin-top:2px;}
+
+.chart-row{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--gap);margin-bottom:var(--gap);}
+.chart-row.three{grid-template-columns:1fr 1fr 1fr;}
+.chart-container{background:var(--bg-card);border-radius:var(--radius);padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.chart-container h3{font-size:13.5px;font-weight:700;margin-bottom:2px;}
+.chart-container .chart-sub{font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;}
+.chart-container canvas{max-height:300px;}
+.chart-container.tall canvas{max-height:340px;}
+
+.insights-section{background:var(--bg-card);border-radius:var(--radius);padding:20px 24px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:var(--gap);}
+.insights-section h2{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.insights-section h2 .badge{font-size:10px;background:var(--c1);color:#fff;padding:2px 8px;border-radius:10px;font-weight:600;letter-spacing:.3px;}
+.insight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+.insight-card{background:#f6f8fb;border-radius:8px;padding:14px 16px;border-top:3px solid var(--c1);}
+.insight-card.o2{border-top-color:var(--c2);}
+.insight-card.o3{border-top-color:var(--c3);}
+.insight-card.o4{border-top-color:var(--c4);}
+.insight-card h4{font-size:12.5px;font-weight:700;margin-bottom:6px;}
+.insight-card p{font-size:12.5px;color:var(--text-secondary);}
+
+.table-section{background:var(--bg-card);border-radius:var(--radius);padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow-x:auto;margin-bottom:var(--gap);}
+.table-section h3{font-size:13.5px;font-weight:700;margin-bottom:4px;}
+.table-section .chart-sub{font-size:11.5px;color:var(--text-secondary);margin-bottom:10px;}
+.data-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.data-table thead th{text-align:left;padding:8px 10px;border-bottom:2px solid #dee2e6;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;user-select:none;cursor:pointer;}
+.data-table thead th:hover{color:var(--text-primary);background:#f3f5f8;}
+.data-table tbody td{padding:7px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;}
+.data-table tbody tr:hover{background:#f8f9fb;}
+.pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;}
+.pill.pos{background:#e2f5e9;color:var(--positive);}
+.pill.neg{background:#fbe7e5;color:var(--negative);}
+.pill.neu{background:#eef1f5;color:var(--text-secondary);}
+.search-box{margin-bottom:10px;}
+.search-box input{padding:7px 10px;border:1px solid #d6dce3;border-radius:6px;font-size:12.5px;width:220px;}
+
+.dashboard-footer{text-align:center;font-size:11px;color:var(--text-secondary);padding:14px 0 6px;}
+.dashboard-footer a{color:var(--c1);}
+
+@media (max-width:900px){
+  .chart-row, .chart-row.three{grid-template-columns:1fr;}
+  .kpi-row{grid-template-columns:repeat(2,1fr);}
+}
+@media print{
+  body{background:#fff;}
+  .filters{display:none;}
+}
+</style>
+</head>
+<body>
+<div class="dashboard-container">
+
+  <header class="dashboard-header">
+    <div class="header-top">
+      <div>
+        <h1>Global Container Port Throughput &amp; Capacity Dashboard</h1>
+        <div class="subtitle">Annual TEU throughput, nominal capacity &amp; utilization across __NUM_PORTS__ ports, __NUM_COUNTRIES__ countries and 6 world regions</div>
+      </div>
+      <div class="header-meta">
+        Data through 2024 actuals (2025-2030 indicative)<br>
+        Source: ADPG port &amp; geo master file
+      </div>
+    </div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>View Level</label>
+        <select id="f-level" onchange="dash.onLevelChange()">
+          <option value="global">Global</option>
+          <option value="region">Region</option>
+          <option value="coastal">Coastal Region</option>
+          <option value="country">Country</option>
+          <option value="port">Port</option>
+        </select>
+      </div>
+      <div class="filter-group" id="f-entity-group" style="display:none;">
+        <label id="f-entity-label">Select</label>
+        <select id="f-entity" onchange="dash.onEntityChange()"></select>
+      </div>
+      <div class="filter-group">
+        <label>Trend Window</label>
+        <select id="f-window" onchange="dash.render()">
+          <option value="1995">Since 1995</option>
+          <option value="2005">Since 2005</option>
+          <option value="2010" selected>Since 2010</option>
+          <option value="2015">Since 2015</option>
+        </select>
+      </div>
+      <div class="breadcrumb" id="breadcrumb"></div>
+    </div>
+  </header>
+
+  <section class="kpi-row" id="kpi-row"></section>
+
+  <section class="chart-row">
+    <div class="chart-container tall">
+      <h3 id="trend-title">Annual Throughput Trend</h3>
+      <div class="chart-sub" id="trend-sub">Column = throughput (TEU) · Line = nominal capacity (TEU)</div>
+      <canvas id="trendChart"></canvas>
+    </div>
+    <div class="chart-container tall">
+      <h3 id="bar-title">Top Entities</h3>
+      <div class="chart-sub" id="bar-sub">Ranked by 2024 throughput</div>
+      <canvas id="barChart"></canvas>
+    </div>
+  </section>
+
+  <section class="chart-row three">
+    <div class="chart-container">
+      <h3>Year-on-Year Growth</h3>
+      <div class="chart-sub">% change in annual throughput</div>
+      <canvas id="yoyChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Capacity Utilization</h3>
+      <div class="chart-sub">Throughput as % of nominal capacity</div>
+      <canvas id="utilChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3 id="comp-title">Regional Composition, 2024</h3>
+      <div class="chart-sub">Share of global throughput</div>
+      <canvas id="compChart"></canvas>
+    </div>
+  </section>
+
+  <section class="insights-section">
+    <h2>Executive Insights &amp; Analysis <span class="badge">AI-generated, data + industry research</span></h2>
+    <div class="insight-grid" id="insight-grid"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>Port Rankings — 2024 Throughput</h3>
+    <div class="chart-sub">Top global ports with growth, utilization and 10-year rank movement. Click headers to sort, use search to filter.</div>
+    <div class="search-box"><input type="text" id="table-search" placeholder="Search port, country or region..." oninput="dash.renderTable()"></div>
+    <div id="table-wrap"></div>
+  </section>
+
+  <footer class="dashboard-footer">
+    Container Ports Dashboard · Generated __GEN_DATE__ · Data: ADPG internal port throughput &amp; capacity master (thru / cap / port_&amp;_geo) ·
+    Context sources: <a href="https://porteconomicsmanagement.org/pemp/contents/part1/maritime-shipping-and-international-trade/world-container-throughput/" target="_blank">Port Economics &amp; Management</a>,
+    <a href="https://www.vizionapi.com/blog/global-container-trade-2025-performance-review-and-2026-forecasts" target="_blank">Vizion 2025 Container Trade Review</a>
+  </footer>
+</div>
+
+<script>
+const DATA = __DATA_JSON__;
+const COLORS = ['#1b6ca8','#ef8a17','#2a9d8f','#e76f51','#8d6fb8','#4b8b3b','#c9444d','#5b6b7c','#1d8a99','#b08968'];
+
+function fmt(v, decimals=1){
+  if(v===null||v===undefined||isNaN(v)) return '—';
+  const abs = Math.abs(v);
+  if(abs>=1e9) return (v/1e9).toFixed(decimals)+'B';
+  if(abs>=1e6) return (v/1e6).toFixed(decimals)+'M';
+  if(abs>=1e3) return (v/1e3).toFixed(decimals)+'K';
+  return v.toFixed(0);
+}
+function fmtPct(v, decimals=1){
+  if(v===null||v===undefined||isNaN(v)) return '—';
+  return v.toFixed(decimals)+'%';
+}
+
+class Dashboard{
+  constructor(data){
+    this.data = data;
+    this.charts = {};
+    this.sortCol = 'rank';
+    this.sortDir = 'asc';
+    this.init();
+  }
+  init(){
+    this.onLevelChange();
+    this.renderInsights();
+    this.renderTable();
+  }
+  currentYears(){
+    const win = parseInt(document.getElementById('f-window').value);
+    return win;
+  }
+  sliceFrom(years, startYear){
+    let idx0 = years.findIndex(y=>y>=startYear);
+    if(idx0<0) idx0 = 0;
+    return idx0;
+  }
+  getEntityList(level){
+    if(level==='region') return Object.keys(this.data.region).sort();
+    if(level==='coastal') return Object.keys(this.data.coastal_region).sort();
+    if(level==='country') return Object.keys(this.data.country).sort();
+    if(level==='port') return Object.keys(this.data.port).sort();
+    return [];
+  }
+  onLevelChange(){
+    const level = document.getElementById('f-level').value;
+    const grp = document.getElementById('f-entity-group');
+    const sel = document.getElementById('f-entity');
+    sel.innerHTML='';
+    if(level==='global'){
+      grp.style.display='none';
+    } else {
+      grp.style.display='flex';
+      document.getElementById('f-entity-label').textContent = level==='region'?'Region':level==='coastal'?'Coastal Region':level==='country'?'Country':'Port';
+      const list = this.getEntityList(level);
+      list.forEach(name=>{
+        const o = document.createElement('option');
+        o.value=name; o.textContent=name;
+        sel.appendChild(o);
+      });
+      // default to top entity by 2024 volume
+      const top = this.topEntity(level);
+      if(top) sel.value = top;
+    }
+    this.render();
+  }
+  topEntity(level){
+    const dict = level==='region'?this.data.region:level==='coastal'?this.data.coastal_region:level==='country'?this.data.country:this.data.port;
+    let best=null, bestVal=-1;
+    for(const k in dict){
+      const v = dict[k].vol_2024;
+      if(v && v>bestVal){bestVal=v;best=k;}
+    }
+    return best;
+  }
+  onEntityChange(){ this.render(); }
+  render(){
+    this.renderKPIs();
+    this.renderTrendChart();
+    this.renderBarChart();
+    this.renderYoyChart();
+    this.renderUtilChart();
+    this.renderCompChart();
+    this.renderBreadcrumb();
+  }
+  renderBreadcrumb(){
+    const level = document.getElementById('f-level').value;
+    const bc = document.getElementById('breadcrumb');
+    if(level==='global'){ bc.innerHTML = 'Scope: <b>Global</b>'; return; }
+    const entity = document.getElementById('f-entity').value;
+    bc.innerHTML = 'Scope: <b>'+entity+'</b>';
+  }
+  // returns {years, volumes, capacities, utilization, label}
+  getSeries(){
+    const level = document.getElementById('f-level').value;
+    const win = this.currentYears();
+    if(level==='global'){
+      const g = this.data.global;
+      const idx0 = this.sliceFrom(g.years, win);
+      return {
+        years: g.years.slice(idx0),
+        volumes: g.volume.slice(idx0),
+        capacities: g.capacity.slice(idx0),
+        utilization: g.utilization.slice(idx0),
+        label: 'Global'
+      };
+    }
+    const entity = document.getElementById('f-entity').value;
+    const dict = level==='region'?this.data.region:level==='coastal'?this.data.coastal_region:level==='country'?this.data.country:this.data.port;
+    const rec = dict[entity];
+    if(!rec) return {years:[],volumes:[],capacities:[],utilization:[],label:entity};
+    const idx0 = this.sliceFrom(rec.years, win);
+    return {
+      years: rec.years.slice(idx0),
+      volumes: rec.volumes.slice(idx0),
+      capacities: rec.capacities.slice(idx0),
+      utilization: rec.utilization.slice(idx0),
+      label: entity
+    };
+  }
+  renderKPIs(){
+    const s = this.getSeries();
+    const n = s.years.length;
+    const last = n-1;
+    const vol2024 = s.volumes[s.years.indexOf(2024)] ?? s.volumes[last];
+    const vol2023 = s.volumes[s.years.indexOf(2023)];
+    const cap2024 = s.capacities[s.years.indexOf(2024)];
+    const util2024 = s.utilization[s.years.indexOf(2024)];
+    const yoy = (vol2024 && vol2023) ? ((vol2024/vol2023-1)*100) : null;
+    // cagr 10y
+    const i2014 = s.years.indexOf(2014);
+    let cagr10 = null;
+    if(i2014>=0 && s.volumes[i2014]){
+      cagr10 = ((vol2024/s.volumes[i2014])**(1/10)-1)*100;
+    }
+    const numEntities = document.getElementById('f-level').value==='global' ? Object.keys(this.data.port).length : null;
+
+    const kpis = [
+      {label:'2024 Throughput', value: fmt(vol2024)+' TEU', sub: s.label, change: yoy, changeLabel: yoy!==null?(yoy>=0?'+':'')+yoy.toFixed(1)+'% YoY':null, cls:''},
+      {label:'2024 Capacity', value: cap2024?fmt(cap2024)+' TEU':'—', sub:'Nominal annual capacity', cls:'alt'},
+      {label:'Capacity Utilization', value: util2024?util2024.toFixed(1)+'%':'—', sub:'Throughput / capacity', cls:'alt2'},
+      {label:'10-Yr CAGR', value: cagr10!==null?(cagr10>=0?'+':'')+cagr10.toFixed(1)+'%':'—', sub:'2014 → 2024', cls:'alt3'},
+    ];
+    if(document.getElementById('f-level').value==='global'){
+      kpis.push({label:'Ports Tracked', value: Object.keys(this.data.port).length.toLocaleString(), sub:'Across '+Object.keys(this.data.country).length+' countries', cls:'alt4'});
+    }
+    const row = document.getElementById('kpi-row');
+    row.innerHTML = kpis.map(k=>`
+      <div class="kpi-card ${k.cls}">
+        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-value">${k.value}</div>
+        ${k.changeLabel?`<div class="kpi-change ${k.change>=0?'positive':'negative'}">${k.changeLabel}</div>`:`<div class="kpi-sub">${k.sub||''}</div>`}
+      </div>`).join('');
+  }
+  renderTrendChart(){
+    const s = this.getSeries();
+    document.getElementById('trend-title').textContent = s.label + ' — Annual Throughput Trend';
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    if(this.charts.trend) this.charts.trend.destroy();
+    this.charts.trend = new Chart(ctx,{
+      data:{
+        labels: s.years,
+        datasets:[
+          {type:'bar', label:'Throughput (TEU)', data:s.volumes, backgroundColor:'#1b6ca8CC', borderRadius:3, order:2, yAxisID:'y'},
+          {type:'line', label:'Capacity (TEU)', data:s.capacities, borderColor:'#ef8a17', backgroundColor:'#ef8a1720', borderWidth:2, pointRadius:0, tension:.25, order:1, yAxisID:'y', spanGaps:true}
+        ]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{mode:'index', intersect:false},
+        plugins:{legend:{position:'top', labels:{usePointStyle:true, boxWidth:8, font:{size:11}}},
+          tooltip:{callbacks:{label:(c)=>c.dataset.label+': '+fmt(c.parsed.y)+' TEU'}}},
+        scales:{
+          x:{grid:{display:false}, ticks:{maxRotation:0, autoSkip:true, font:{size:10}}},
+          y:{beginAtZero:true, ticks:{callback:(v)=>fmt(v), font:{size:10}}}
+        }
+      }
+    });
+  }
+  renderBarChart(){
+    const level = document.getElementById('f-level').value;
+    let labels=[], values=[], title='Top Ports', sub='Ranked by 2024 throughput';
+    if(level==='global'){
+      const arr = Object.entries(this.data.region).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]);
+      labels = arr.map(a=>a[0]); values = arr.map(a=>a[1]);
+      title='Throughput by Region'; sub='2024 totals';
+    } else if(level==='region'){
+      const region = document.getElementById('f-entity').value;
+      const arr = Object.entries(this.data.country).filter(([k,v])=>(this.data.country_meta[k]||{}).Region===region).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]).slice(0,12);
+      labels=arr.map(a=>a[0]); values=arr.map(a=>a[1]);
+      title='Top Countries in '+region; sub='2024 totals';
+    } else if(level==='coastal'){
+      const coastal = document.getElementById('f-entity').value;
+      const arr = Object.entries(this.data.port).filter(([k,v])=>(this.data.port_meta[k]||{}).CoastalRegion===coastal).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]).slice(0,12);
+      labels=arr.map(a=>a[0]); values=arr.map(a=>a[1]);
+      title='Top Ports in '+coastal; sub='2024 totals';
+    } else if(level==='country'){
+      const country = document.getElementById('f-entity').value;
+      const arr = Object.entries(this.data.port).filter(([k,v])=>(this.data.port_meta[k]||{}).Country===country).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]).slice(0,12);
+      labels=arr.map(a=>a[0]); values=arr.map(a=>a[1]);
+      title='Top Ports in '+country; sub='2024 totals';
+    } else {
+      const arr = (this.data.top_ports_2024||[]).slice(0,12);
+      labels = arr.map(a=>a.port); values = arr.map(a=>a.volume_2024);
+      title='Top Global Ports'; sub='2024 totals';
+    }
+    document.getElementById('bar-title').textContent = title;
+    document.getElementById('bar-sub').textContent = sub;
+    const ctx = document.getElementById('barChart').getContext('2d');
+    if(this.charts.bar) this.charts.bar.destroy();
+    this.charts.bar = new Chart(ctx,{
+      type:'bar',
+      data:{labels, datasets:[{data:values, backgroundColor:COLORS, borderRadius:4}]},
+      options:{
+        responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmt(c.parsed.x)+' TEU'}}},
+        scales:{x:{beginAtZero:true, ticks:{callback:(v)=>fmt(v), font:{size:10}}}, y:{ticks:{font:{size:10.5}}}}
+      }
+    });
+  }
+  renderYoyChart(){
+    const s = this.getSeries();
+    const yoy = s.volumes.map((v,i)=> (i>0 && s.volumes[i-1]) ? ((v/s.volumes[i-1]-1)*100) : null);
+    const ctx = document.getElementById('yoyChart').getContext('2d');
+    if(this.charts.yoy) this.charts.yoy.destroy();
+    this.charts.yoy = new Chart(ctx,{
+      type:'bar',
+      data:{labels:s.years, datasets:[{data:yoy, backgroundColor: yoy.map(v=>v>=0?'#2a9d8fCC':'#e76f51CC'), borderRadius:3}]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmtPct(c.parsed.y)}}},
+        scales:{x:{grid:{display:false}, ticks:{font:{size:9.5}, maxRotation:0, autoSkip:true}}, y:{ticks:{callback:(v)=>v+'%', font:{size:10}}}}
+      }
+    });
+  }
+  renderUtilChart(){
+    const s = this.getSeries();
+    const ctx = document.getElementById('utilChart').getContext('2d');
+    if(this.charts.util) this.charts.util.destroy();
+    this.charts.util = new Chart(ctx,{
+      type:'line',
+      data:{labels:s.years, datasets:[{label:'Utilization %', data:s.utilization, borderColor:'#8d6fb8', backgroundColor:'#8d6fb820', borderWidth:2, pointRadius:2, tension:.25, fill:true, spanGaps:true}]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmtPct(c.parsed.y)}}},
+        scales:{x:{grid:{display:false}, ticks:{font:{size:9.5}, maxRotation:0, autoSkip:true}}, y:{ticks:{callback:(v)=>v+'%', font:{size:10}}}}
+      }
+    });
+  }
+  renderCompChart(){
+    const level = document.getElementById('f-level').value;
+    let labels, values, title;
+    if(level==='global'){
+      const arr = Object.entries(this.data.region).map(([k,v])=>[k,v.vol_2024||0]);
+      labels=arr.map(a=>a[0]); values=arr.map(a=>a[1]); title='Regional Composition, 2024';
+    } else if(level==='region'){
+      const region = document.getElementById('f-entity').value;
+      const arr = Object.entries(this.data.country).filter(([k,v])=>(this.data.country_meta[k]||{}).Region===region).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]);
+      const top = arr.slice(0,6); const rest = arr.slice(6).reduce((s,a)=>s+a[1],0);
+      labels = top.map(a=>a[0]).concat(rest>0?['Other']:[]); values = top.map(a=>a[1]).concat(rest>0?[rest]:[]);
+      title = 'Country Composition — '+region;
+    } else if(level==='coastal'){
+      const coastal = document.getElementById('f-entity').value;
+      const arr = Object.entries(this.data.port).filter(([k,v])=>(this.data.port_meta[k]||{}).CoastalRegion===coastal).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]);
+      const top = arr.slice(0,6); const rest = arr.slice(6).reduce((s,a)=>s+a[1],0);
+      labels = top.map(a=>a[0]).concat(rest>0?['Other']:[]); values = top.map(a=>a[1]).concat(rest>0?[rest]:[]);
+      title = 'Port Composition — '+coastal;
+    } else if(level==='country'){
+      const country = document.getElementById('f-entity').value;
+      const arr = Object.entries(this.data.port).filter(([k,v])=>(this.data.port_meta[k]||{}).Country===country).map(([k,v])=>[k,v.vol_2024||0]).sort((a,b)=>b[1]-a[1]);
+      const top = arr.slice(0,6); const rest = arr.slice(6).reduce((s,a)=>s+a[1],0);
+      labels = top.map(a=>a[0]).concat(rest>0?['Other']:[]); values = top.map(a=>a[1]).concat(rest>0?[rest]:[]);
+      title = 'Port Composition — '+country;
+    } else {
+      const port = document.getElementById('f-entity').value;
+      const meta = this.data.port_meta[port]||{};
+      labels=['This Port','Rest of Country'];
+      const portVal = this.data.port[port].vol_2024||0;
+      const countryVal = (this.data.country[meta.Country]||{}).vol_2024||0;
+      values=[portVal, Math.max(countryVal-portVal,0)];
+      title = port+' Share of '+(meta.Country||'Country');
+    }
+    document.querySelector('#compChart').closest('.chart-container').querySelector('h3').textContent = title;
+    const ctx = document.getElementById('compChart').getContext('2d');
+    if(this.charts.comp) this.charts.comp.destroy();
+    this.charts.comp = new Chart(ctx,{
+      type:'doughnut',
+      data:{labels, datasets:[{data:values, backgroundColor:COLORS, borderColor:'#fff', borderWidth:2}]},
+      options:{
+        responsive:true, maintainAspectRatio:false, cutout:'58%',
+        plugins:{legend:{position:'bottom', labels:{usePointStyle:true, boxWidth:8, font:{size:10}}},
+          tooltip:{callbacks:{label:(c)=>{const total=c.dataset.data.reduce((a,b)=>a+b,0); const pct=total?((c.parsed/total)*100).toFixed(1):0; return c.label+': '+fmt(c.parsed)+' ('+pct+'%)';}}}}
+      }
+    });
+  }
+  renderInsights(){
+    const insights = [
+      {cls:'', h:'Asia consolidates its dominance', p:'Asia accounts for the large majority of global container throughput, led by China\'s North East Asia coastal cluster (Shanghai, Ningbo, Shenzhen, Qingdao). Shanghai alone handled over 51M TEU in 2024 and has held the #1 global rank since at least 2014, consistent with external industry data showing China handling 301M+ TEU nationally in 2024, up ~8% YoY.'},
+      {cls:'o2', h:'Capacity is tightening in key hubs', p:'Several top-20 ports — including Ningbo and Tianjin — show modeled utilization above 100% of nominal capacity, signalling sustained reliance on yard optimization, faster turnaround and berth productivity gains rather than physical capacity expansion. This mirrors 2025 industry reports of an 18-month congestion high across major Asian gateways.'},
+      {cls:'o3', h:'Mid-tier challengers are climbing fastest', p:'Ports such as Ningbo, Qingdao and Port Klang have gained 2-3 places in the global top-10 over the past decade, while legacy hubs with slower CAGRs are slipping. Vietnam-linked gateways and selected Middle East transshipment hubs (e.g. Jebel Ali) also show resilient growth, aligning with reported 16% YoY growth for Vietnamese ports in 2024.'},
+      {cls:'o4', h:'Red Sea diversion reshaping regional flows', p:'2025 industry reporting confirms ongoing Red Sea/Suez disruption has pushed traffic around the Cape of Good Hope, inflating volumes at Mediterranean and North West Europe transshipment ports and straining Singapore and Port Klang. A prospective return to Suez risks a sharp congestion wave in Europe followed by an Asian equipment-shortage echo 8-9 weeks later — a key watch-item for 2026 capacity planning.'},
+      {cls:'', h:'Global growth outlook remains constructive', p:'External 2025 estimates point to global container throughput reaching roughly 937M TEU (+7% YoY) in 2024, with global handling capacity forecast to grow ~4.8% (+64M TEU) in 2025 — the largest absolute annual increase since the financial crisis — before growth moderates toward 2027.'},
+      {cls:'o2', h:'Regional CAGR dispersion signals where to invest', p:'Use the Region and Coastal Region views to compare 10-year CAGR against current utilization: regions combining high CAGR with high utilization (>85%) are the clearest near-term capacity expansion candidates, while low-utilization, low-growth regions may indicate overbuilt or underperforming capacity.'}
+    ];
+    document.getElementById('insight-grid').innerHTML = insights.map(i=>`
+      <div class="insight-card ${i.cls}"><h4>${i.h}</h4><p>${i.p}</p></div>`).join('');
+  }
+  renderTable(){
+    const search = (document.getElementById('table-search').value||'').toLowerCase();
+    let rows = (this.data.top_ports_2024||[]).filter(r=>
+      !search || r.port.toLowerCase().includes(search) || (r.country||'').toLowerCase().includes(search) || (r.region||'').toLowerCase().includes(search) || (r.coastal_region||'').toLowerCase().includes(search)
+    );
+    const col = this.sortCol, dir = this.sortDir;
+    rows = [...rows].sort((a,b)=>{
+      let av=a[col], bv=b[col];
+      if(av===null||av===undefined) av = dir==='asc'?Infinity:-Infinity;
+      if(bv===null||bv===undefined) bv = dir==='asc'?Infinity:-Infinity;
+      if(typeof av==='string') return dir==='asc'? av.localeCompare(bv) : bv.localeCompare(av);
+      return dir==='asc'? av-bv : bv-av;
+    });
+    const cols = [
+      {f:'rank', l:'Rank'}, {f:'port', l:'Port'}, {f:'country', l:'Country'}, {f:'region', l:'Region'},
+      {f:'volume_2024', l:'2024 TEU'}, {f:'yoy_2024', l:'YoY'}, {f:'cagr_10y', l:'10y CAGR'},
+      {f:'utilization_2024', l:'Utilization'}, {f:'rank_change', l:'10y Rank Δ'}
+    ];
+    let html = '<table class="data-table"><thead><tr>';
+    cols.forEach(c=>{
+      const arrow = this.sortCol===c.f ? (this.sortDir==='asc'?' ▲':' ▼') : '';
+      html += `<th onclick="dash.sortTable('${c.f}')">${c.l}${arrow}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    rows.slice(0,100).forEach(r=>{
+      const yoy = r.yoy_2024;
+      const yoyPill = yoy===null||yoy===undefined?'<span class="pill neu">—</span>':`<span class="pill ${yoy>=0?'pos':'neg'}">${yoy>=0?'+':''}${yoy.toFixed(1)}%</span>`;
+      const cagr = r.cagr_10y;
+      const cagrPill = cagr===null||cagr===undefined?'<span class="pill neu">—</span>':`<span class="pill ${cagr>=0?'pos':'neg'}">${cagr>=0?'+':''}${cagr.toFixed(1)}%</span>`;
+      const rc = r.rank_change;
+      const rcPill = (rc===null||rc===undefined)?'<span class="pill neu">new</span>':rc===0?'<span class="pill neu">0</span>':`<span class="pill ${rc>0?'pos':'neg'}">${rc>0?'+':''}${rc}</span>`;
+      html += `<tr>
+        <td>${r.rank}</td><td><b>${r.port}</b></td><td>${r.country||'—'}</td><td>${r.region||'—'}</td>
+        <td>${fmt(r.volume_2024)}</td><td>${yoyPill}</td><td>${cagrPill}</td>
+        <td>${r.utilization_2024!==null&&r.utilization_2024!==undefined?r.utilization_2024.toFixed(1)+'%':'—'}</td>
+        <td>${rcPill}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('table-wrap').innerHTML = html;
+  }
+  sortTable(col){
+    if(this.sortCol===col){ this.sortDir = this.sortDir==='asc'?'desc':'asc'; }
+    else { this.sortCol=col; this.sortDir = col==='port'||col==='country'||col==='region'?'asc':'asc'; if(col!=='rank') this.sortDir='desc'; else this.sortDir='asc';}
+    this.renderTable();
+  }
+}
+
+const dash = new Dashboard(DATA);
+</script>
+</body>
+</html>
