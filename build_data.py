@@ -6,8 +6,11 @@ thru = pd.read_excel('_work.xlsx', sheet_name='thru')
 cap = pd.read_excel('_work.xlsx', sheet_name='cap')
 geo = pd.read_excel('_work.xlsx', sheet_name='port_&_geo')
 
-geo_small = geo[['adpg_port_id','Port','Coastal Region','Clarksons Region','iso3Code','countryName','Region','portLat','portLon']].drop_duplicates(subset=['adpg_port_id'])
+geo_small = geo[['adpg_port_id','Port','Coastal Region','Clarksons Region','iso3Code','countryName','Region','portLat','portLon','numCode']].drop_duplicates(subset=['adpg_port_id'])
 geo_small = geo_small.rename(columns={'Clarksons Region':'ClarksonsRegion','Coastal Region':'CoastalRegion','countryName':'Country'})
+geo_small['portLat'] = pd.to_numeric(geo_small['portLat'], errors='coerce')
+geo_small['portLon'] = pd.to_numeric(geo_small['portLon'], errors='coerce')
+geo_small['numCode'] = pd.to_numeric(geo_small['numCode'], errors='coerce')
 
 thru['Year'] = pd.to_datetime(thru['Date']).dt.year
 cap['Date'] = pd.to_datetime(cap['Date'], errors='coerce')
@@ -115,6 +118,7 @@ for d in [region_data, coastal_data, country_data, port_data]:
     for k, rec in d.items():
         rec['cagr_5y'] = cagr_for_rec(rec, 2019, 2024)
         rec['cagr_10y'] = cagr_for_rec(rec, 2014, 2024)
+        rec['cagr_fc'] = cagr_for_rec(rec, 2024, 2030)
         years = rec['years']
         if 2024 in years and 2023 in years:
             v24 = rec['volumes'][years.index(2024)]
@@ -124,12 +128,35 @@ for d in [region_data, coastal_data, country_data, port_data]:
             rec['yoy_2024'] = None
         rec['vol_2024'] = rec['volumes'][years.index(2024)] if 2024 in years else None
         rec['vol_2014'] = rec['volumes'][years.index(2014)] if 2014 in years else None
+        rec['vol_2030'] = rec['volumes'][years.index(2030)] if 2030 in years else None
 
-# port-level metadata for filtering/joining (region, coastal, country)
-port_meta = geo_small.set_index('Port')[['Region','CoastalRegion','Country']].to_dict('index')
+# port-level metadata for filtering/joining (region, coastal, country) + map coordinates
+port_meta_df = geo_small.drop_duplicates(subset=['Port'])
+port_meta = {}
+for _, row in port_meta_df.iterrows():
+    lat = row['portLat']; lon = row['portLon']
+    port_meta[row['Port']] = {
+        'Region': row['Region'],
+        'CoastalRegion': row['CoastalRegion'],
+        'Country': row['Country'],
+        'lat': None if pd.isna(lat) else round(float(lat),4),
+        'lon': None if pd.isna(lon) else round(float(lon),4),
+    }
 
-# country meta: region mapping
-country_meta = geo_small.drop_duplicates(subset=['Country']).set_index('Country')[['Region']].to_dict('index')
+# country meta: region mapping + ISO numeric code (for choropleth join) + representative lat/lon (mean of its ports)
+country_num = geo_small.dropna(subset=['Country']).groupby('Country')['numCode'].first()
+country_latlon = geo_small.dropna(subset=['Country']).groupby('Country')[['portLat','portLon']].mean()
+country_meta = {}
+for c in geo_small['Country'].dropna().unique():
+    region_row = geo_small.loc[geo_small['Country']==c, 'Region']
+    nc = country_num.get(c)
+    ll = country_latlon.loc[c] if c in country_latlon.index else None
+    country_meta[c] = {
+        'Region': region_row.iloc[0] if len(region_row) else None,
+        'numCode': None if (nc is None or pd.isna(nc)) else int(nc),
+        'lat': None if ll is None or pd.isna(ll['portLat']) else round(float(ll['portLat']),4),
+        'lon': None if ll is None or pd.isna(ll['portLon']) else round(float(ll['portLon']),4),
+    }
 
 # top ports 2024 ranking with prior rank (2014) for "rank change"
 top_ports_2024 = sorted(
@@ -157,8 +184,18 @@ for i,(k,v) in enumerate(top_ports_2024):
         'yoy_2024': port_data[k]['yoy_2024'],
         'rank_2014': rank_2014.get(k),
         'rank_change': (rank_2014.get(k) - (i+1)) if rank_2014.get(k) else None,
-        'utilization_2024': port_data[k]['utilization'][port_data[k]['years'].index(2024)] if 2024 in port_data[k]['years'] else None
+        'utilization_2024': port_data[k]['utilization'][port_data[k]['years'].index(2024)] if 2024 in port_data[k]['years'] else None,
+        'lat': meta.get('lat'),
+        'lon': meta.get('lon'),
     })
+
+global_cagr_fc = None
+gy = global_df['Year'].tolist()
+gv = global_df['TotalVolume'].tolist()
+if 2024 in gy and 2030 in gy:
+    v24 = gv[gy.index(2024)]; v30 = gv[gy.index(2030)]
+    if v24 and v24 > 0:
+        global_cagr_fc = round(((v30/v24)**(1/6)-1)*100,2)
 
 output = {
     'meta': {
@@ -171,7 +208,8 @@ output = {
         'volume': [round(x,1) for x in global_df['TotalVolume'].tolist()],
         'capacity': [None if pd.isna(x) else round(x,1) for x in global_df['TotalCapacity'].tolist()],
         'yoy': [None if pd.isna(x) else round(x,2) for x in global_df['YoY'].tolist()],
-        'utilization': [None if pd.isna(x) else round(x,1) for x in global_df['Utilization'].tolist()]
+        'utilization': [None if pd.isna(x) else round(x,1) for x in global_df['Utilization'].tolist()],
+        'cagr_fc': global_cagr_fc
     },
     'region': region_data,
     'coastal_region': coastal_data,

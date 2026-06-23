@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Global Container Port Throughput & Capacity Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-geo@4.3.4/build/index.umd.min.js" crossorigin="anonymous"></script>
 <style>
 :root{
   --bg-primary:#eef1f5;
@@ -49,6 +50,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 .kpi-card.alt2{border-left-color:var(--c3);}
 .kpi-card.alt3{border-left-color:var(--c4);}
 .kpi-card.alt4{border-left-color:var(--c5);}
+.kpi-card.alt5{border-left-color:var(--c6);}
 .kpi-label{font-size:11.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
 .kpi-value{font-size:25px;font-weight:700;}
 .kpi-change{font-size:12px;font-weight:600;margin-top:3px;}
@@ -58,6 +60,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 
 .chart-row{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--gap);margin-bottom:var(--gap);}
 .chart-row.three{grid-template-columns:1fr 1fr 1fr;}
+.chart-row.single-map{grid-template-columns:1fr;}
 .chart-container{background:var(--bg-card);border-radius:var(--radius);padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
 .chart-container h3{font-size:13.5px;font-weight:700;margin-bottom:2px;}
 .chart-container .chart-sub{font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;}
@@ -147,6 +150,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 
   <section class="kpi-row" id="kpi-row"></section>
 
+  <section class="chart-row" id="map-row">
+    <div class="chart-container tall" id="choropleth-card">
+      <h3 id="choropleth-title">World Throughput Heatmap, 2024</h3>
+      <div class="chart-sub">Darker blue = higher container throughput · grey = no data. Available at Global view.</div>
+      <canvas id="choroplethChart"></canvas>
+    </div>
+    <div class="chart-container tall">
+      <h3 id="ports-map-title">Port Locations</h3>
+      <div class="chart-sub" id="ports-map-sub">Top 30 ports globally by 2024 throughput, sized by volume</div>
+      <canvas id="portsMapChart"></canvas>
+    </div>
+  </section>
+
   <section class="chart-row">
     <div class="chart-container tall">
       <h3 id="trend-title">Annual Throughput Trend</h3>
@@ -220,12 +236,34 @@ class Dashboard{
     this.charts = {};
     this.sortCol = 'rank';
     this.sortDir = 'asc';
+    this.worldFeatures = null;
     this.init();
+    this.loadWorldMap();
   }
   init(){
     this.onLevelChange();
     this.renderInsights();
     this.renderTable();
+  }
+  async loadWorldMap(){
+    try{
+      const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+      const topo = await res.json();
+      this.worldFeatures = ChartGeo.topojson.feature(topo, topo.objects.countries).features;
+    }catch(e){
+      console.error('World map load failed', e);
+      this.worldFeatures = null;
+    }
+    this.renderMaps();
+  }
+  blueScale(t){
+    t = Math.max(0, Math.min(1, t));
+    const stops = [[0.86,0.89,0.93],[0.62,0.76,0.87],[0.27,0.52,0.71],[0.05,0.21,0.38]];
+    const seg = t*(stops.length-1);
+    const i = Math.min(Math.floor(seg), stops.length-2);
+    const f = seg-i;
+    const c = stops[i].map((v,idx)=> v + (stops[i+1][idx]-v)*f);
+    return `rgb(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)})`;
   }
   currentYears(){
     const win = parseInt(document.getElementById('f-window').value);
@@ -283,6 +321,142 @@ class Dashboard{
     this.renderUtilChart();
     this.renderCompChart();
     this.renderBreadcrumb();
+    this.renderMaps();
+  }
+  renderMaps(){
+    const level = document.getElementById('f-level').value;
+    document.getElementById('choropleth-card').style.display = level==='global' ? '' : 'none';
+    document.getElementById('map-row').classList.toggle('single-map', level!=='global');
+    if(level==='global' && this.worldFeatures) this.renderChoropleth();
+    this.renderPortsMap();
+  }
+  renderChoropleth(){
+    const valByNum = {};
+    for(const country in this.data.country){
+      const meta = this.data.country_meta[country];
+      if(!meta || meta.numCode===null || meta.numCode===undefined) continue;
+      const v = this.data.country[country].vol_2024;
+      if(v) valByNum[String(meta.numCode)] = v;
+    }
+    const vals = Object.values(valByNum);
+    const max = Math.max(...vals, 1);
+    const min = Math.min(...vals, 0);
+    const features = this.worldFeatures;
+    const dataPoints = features.map(f=>{
+      const v = valByNum[String(f.id)] ?? null;
+      return {feature:f, value:v};
+    });
+    const blueScale = this.blueScale;
+    const ctx = document.getElementById('choroplethChart').getContext('2d');
+    if(this.charts.choropleth) this.charts.choropleth.destroy();
+    try{
+      this.charts.choropleth = new ChartGeo.ChoroplethChart(ctx,{
+        data:{
+          labels: features.map(f=>f.properties.name),
+          datasets:[{
+            label:'Throughput',
+            data: dataPoints,
+            backgroundColor:(c)=>{
+              const d = c.dataset?.data?.[c.dataIndex];
+              if(!d || d.value===null || d.value===undefined) return '#e3e6eb';
+              const t = max>min ? (d.value-min)/(max-min) : 0;
+              return blueScale(Math.sqrt(t));
+            },
+            borderColor:'#ffffff', borderWidth:0.6
+          }]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          showOutline:true, showGraticule:false,
+          plugins:{
+            legend:{display:false},
+            tooltip:{callbacks:{label:(c)=>{ const d=c.raw; return d.feature.properties.name+': '+(d.value?fmt(d.value)+' TEU':'no data'); }}}
+          },
+          scales:{ projection:{axis:'x', projection:'equalEarth'} }
+        }
+      });
+    }catch(e){
+      console.error('Choropleth render failed', e);
+      document.getElementById('choroplethChart').closest('.chart-container').innerHTML = '<div class="chart-sub">Map unavailable.</div>';
+    }
+  }
+  renderPortsMap(){
+    const level = document.getElementById('f-level').value;
+    let points = [], title='Port Locations', sub='';
+    if(level==='global'){
+      points = (this.data.top_ports_2024||[]).filter(p=>p.lat!=null&&p.lon!=null).slice(0,30)
+        .map(p=>({lat:p.lat, lon:p.lon, value:p.volume_2024, label:p.port}));
+      title='Top Global Port Locations'; sub='Top 30 ports by 2024 throughput, sized by volume';
+    } else if(level==='region'){
+      const region = document.getElementById('f-entity').value;
+      points = Object.entries(this.data.port_meta).filter(([k,m])=>m.Region===region && m.lat!=null)
+        .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k}));
+      title='Port Locations — '+region; sub=points.length+' ports in region, sized by 2024 throughput';
+    } else if(level==='coastal'){
+      const coastal = document.getElementById('f-entity').value;
+      points = Object.entries(this.data.port_meta).filter(([k,m])=>m.CoastalRegion===coastal && m.lat!=null)
+        .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k}));
+      title='Port Locations — '+coastal; sub=points.length+' ports in coastal region, sized by 2024 throughput';
+    } else if(level==='country'){
+      const country = document.getElementById('f-entity').value;
+      points = Object.entries(this.data.port_meta).filter(([k,m])=>m.Country===country && m.lat!=null)
+        .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k}));
+      title='Port Locations — '+country; sub=points.length+' ports in country, sized by 2024 throughput';
+    } else {
+      const port = document.getElementById('f-entity').value;
+      const meta = this.data.port_meta[port];
+      if(meta && meta.lat!=null){
+        const country = meta.Country;
+        points = Object.entries(this.data.port_meta).filter(([k,m])=>m.Country===country && m.lat!=null)
+          .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k, highlight:k===port}));
+      }
+      title='Port Location — '+port; sub='Highlighted within '+(meta?meta.Country:'');
+    }
+    document.getElementById('ports-map-title').textContent = title;
+    document.getElementById('ports-map-sub').textContent = sub;
+    const maxV = Math.max(...points.map(p=>p.value||0), 1);
+    const minR = 3, maxR = 18;
+    const radiusFor = (v)=> minR + Math.sqrt(Math.max(v,0)/maxV) * (maxR-minR);
+    let xMin=-180, xMax=180, yMin=-60, yMax=80;
+    if(level!=='global' && points.length){
+      const lons = points.map(p=>p.lon), lats = points.map(p=>p.lat);
+      const padLon = Math.max((Math.max(...lons)-Math.min(...lons))*0.25, 3);
+      const padLat = Math.max((Math.max(...lats)-Math.min(...lats))*0.25, 3);
+      xMin = Math.max(Math.min(...lons)-padLon, -180); xMax = Math.min(Math.max(...lons)+padLon, 180);
+      yMin = Math.max(Math.min(...lats)-padLat, -60); yMax = Math.min(Math.max(...lats)+padLat, 85);
+    }
+    const ctx = document.getElementById('portsMapChart').getContext('2d');
+    if(this.charts.portsMap) this.charts.portsMap.destroy();
+    try{
+      this.charts.portsMap = new Chart(ctx,{
+        type:'scatter',
+        data:{
+          datasets:[{
+            label:'Ports',
+            data: points.map(p=>({x:p.lon, y:p.lat, v:p.value, label:p.label})),
+            backgroundColor: points.map(p=> p.highlight ? '#ef8a17cc' : '#1b6ca8aa'),
+            borderColor: points.map(p=> p.highlight ? '#c96f0a' : '#0b5a91'),
+            borderWidth: points.map(p=> p.highlight ? 2 : 1),
+            radius: points.map(p=> radiusFor(p.value)),
+            hoverRadius: points.map(p=> radiusFor(p.value)+2),
+          }]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{
+            legend:{display:false},
+            tooltip:{callbacks:{label:(c)=>{ const d=c.raw; return d.label+': '+fmt(d.v)+' TEU'; }}}
+          },
+          scales:{
+            x:{ min:xMin, max:xMax, grid:{color:'#eef1f5'}, title:{display:true,text:'Longitude',font:{size:10}}, ticks:{font:{size:9}} },
+            y:{ min:yMin, max:yMax, grid:{color:'#eef1f5'}, title:{display:true,text:'Latitude',font:{size:10}}, ticks:{font:{size:9}} }
+          }
+        }
+      });
+    }catch(e){
+      console.error('Ports map render failed', e);
+      document.getElementById('portsMapChart').closest('.chart-container').innerHTML = '<div class="chart-sub">Map unavailable.</div>';
+    }
   }
   renderBreadcrumb(){
     const level = document.getElementById('f-level').value;
@@ -319,6 +493,14 @@ class Dashboard{
       label: entity
     };
   }
+  getCagrFc(){
+    const level = document.getElementById('f-level').value;
+    if(level==='global') return this.data.global.cagr_fc ?? null;
+    const entity = document.getElementById('f-entity').value;
+    const dict = level==='region'?this.data.region:level==='coastal'?this.data.coastal_region:level==='country'?this.data.country:this.data.port;
+    const rec = dict[entity];
+    return rec ? (rec.cagr_fc ?? null) : null;
+  }
   renderKPIs(){
     const s = this.getSeries();
     const n = s.years.length;
@@ -335,12 +517,14 @@ class Dashboard{
       cagr10 = ((vol2024/s.volumes[i2014])**(1/10)-1)*100;
     }
     const numEntities = document.getElementById('f-level').value==='global' ? Object.keys(this.data.port).length : null;
+    const cagrFc = this.getCagrFc();
 
     const kpis = [
       {label:'2024 Throughput', value: fmt(vol2024)+' TEU', sub: s.label, change: yoy, changeLabel: yoy!==null?(yoy>=0?'+':'')+yoy.toFixed(1)+'% YoY':null, cls:''},
       {label:'2024 Capacity', value: cap2024?fmt(cap2024)+' TEU':'—', sub:'Nominal annual capacity', cls:'alt'},
       {label:'Capacity Utilization', value: util2024?util2024.toFixed(1)+'%':'—', sub:'Throughput / capacity', cls:'alt2'},
-      {label:'10-Yr CAGR', value: cagr10!==null?(cagr10>=0?'+':'')+cagr10.toFixed(1)+'%':'—', sub:'2014 → 2024', cls:'alt3'},
+      {label:'10-Yr CAGR', value: cagr10!==null?(cagr10>=0?'+':'')+cagr10.toFixed(1)+'%':'—', sub:'2014 → 2024 actuals', cls:'alt3'},
+      {label:'Forecast CAGR', value: cagrFc!==null?(cagrFc>=0?'+':'')+cagrFc.toFixed(1)+'%':'—', sub:'2024 → 2030 indicative', cls:'alt5'},
     ];
     if(document.getElementById('f-level').value==='global'){
       kpis.push({label:'Ports Tracked', value: Object.keys(this.data.port).length.toLocaleString(), sub:'Across '+Object.keys(this.data.country).length+' countries', cls:'alt4'});
