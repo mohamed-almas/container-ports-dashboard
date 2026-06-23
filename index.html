@@ -93,6 +93,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 .search-box{margin-bottom:10px;}
 .search-box input{padding:7px 10px;border:1px solid #d6dce3;border-radius:6px;font-size:12.5px;width:220px;}
 
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:11px 2px;border-bottom:1px solid #f0f0f0;font-size:13px;gap:10px;}
+.stat-row:last-child{border-bottom:none;}
+.stat-label{color:var(--text-secondary);}
+.stat-value{font-weight:700;text-align:right;}
+
 .dashboard-footer{text-align:center;font-size:11px;color:var(--text-secondary);padding:14px 0 6px;}
 .dashboard-footer a{color:var(--c1);}
 
@@ -191,6 +196,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
       <h3 id="comp-title">Regional Composition, 2024</h3>
       <div class="chart-sub">Share of global throughput</div>
       <canvas id="compChart"></canvas>
+    </div>
+  </section>
+
+  <section class="chart-row" id="competitive-row" style="display:none;">
+    <div class="chart-container tall">
+      <h3 id="competitive-title">Competitive Landscape</h3>
+      <div class="chart-sub" id="competitive-sub">Peer ports ranked by 2024 throughput</div>
+      <canvas id="competitiveChart"></canvas>
+    </div>
+    <div class="chart-container tall">
+      <h3>Competitive Position</h3>
+      <div class="chart-sub">How this port stacks up against its peers</div>
+      <div id="competitive-stats"></div>
     </div>
   </section>
 
@@ -322,6 +340,86 @@ class Dashboard{
     this.renderCompChart();
     this.renderBreadcrumb();
     this.renderMaps();
+    this.renderCompetitive();
+  }
+  renderCompetitive(){
+    const level = document.getElementById('f-level').value;
+    const row = document.getElementById('competitive-row');
+    if(level!=='port'){ row.style.display='none'; return; }
+    row.style.display='';
+    const port = document.getElementById('f-entity').value;
+    const meta = this.data.port_meta[port];
+    if(!meta){ return; }
+    const country = meta.Country, coastal = meta.CoastalRegion;
+    const selfRec = this.data.port[port] || {};
+    const selfVol = selfRec.vol_2024 || 0;
+
+    const inCountry = Object.entries(this.data.port)
+      .filter(([k,v])=>(this.data.port_meta[k]||{}).Country===country && v.vol_2024)
+      .sort((a,b)=>b[1].vol_2024-a[1].vol_2024);
+    const rankCountry = inCountry.findIndex(([k])=>k===port)+1;
+    const countryTotal = (this.data.country[country]||{}).vol_2024 || inCountry.reduce((s,[,v])=>s+v.vol_2024,0);
+    const marketShare = countryTotal ? (selfVol/countryTotal*100) : null;
+
+    const inCoastal = Object.entries(this.data.port)
+      .filter(([k,v])=>(this.data.port_meta[k]||{}).CoastalRegion===coastal && v.vol_2024)
+      .sort((a,b)=>b[1].vol_2024-a[1].vol_2024);
+    const rankCoastal = inCoastal.findIndex(([k])=>k===port)+1;
+
+    let peerPool = inCoastal.filter(([k])=>k!==port);
+    let peerScope = coastal;
+    if(peerPool.length<2){ peerPool = inCountry.filter(([k])=>k!==port); peerScope = country; }
+
+    let nearest = null;
+    peerPool.forEach(([k,v])=>{
+      const diff = Math.abs(v.vol_2024-selfVol);
+      if(!nearest || diff<nearest.diff) nearest = {port:k, vol:v.vol_2024, diff};
+    });
+
+    const peerVals = peerPool.map(([,v])=>v.cagr_10y).filter(v=>v!=null);
+    const peerAvgCagr = peerVals.length ? peerVals.reduce((a,b)=>a+b,0)/peerVals.length : null;
+    const selfCagr = selfRec.cagr_10y;
+    const cagrDiff = (selfCagr!=null && peerAvgCagr!=null) ? selfCagr-peerAvgCagr : null;
+
+    let chartPool = inCoastal.length>=2 ? inCoastal : inCountry;
+    let top = chartPool.slice(0,6);
+    if(!top.find(([k])=>k===port)){
+      const selfEntry = chartPool.find(([k])=>k===port);
+      if(selfEntry){ top = top.slice(0,5).concat([selfEntry]); }
+    }
+    top = top.slice().sort((a,b)=>b[1].vol_2024-a[1].vol_2024);
+
+    document.getElementById('competitive-title').textContent = 'Competitive Landscape — '+port;
+    document.getElementById('competitive-sub').textContent = 'Peer ports in '+peerScope+', ranked by 2024 throughput';
+
+    const ctx = document.getElementById('competitiveChart').getContext('2d');
+    if(this.charts.competitive) this.charts.competitive.destroy();
+    this.charts.competitive = new Chart(ctx,{
+      type:'bar',
+      data:{
+        labels: top.map(([k])=>k),
+        datasets:[{
+          data: top.map(([,v])=>v.vol_2024),
+          backgroundColor: top.map(([k])=> k===port ? '#ef8a17' : '#1b6ca8CC'),
+          borderRadius:4
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmt(c.parsed.x)+' TEU'}}},
+        scales:{ x:{ beginAtZero:true, ticks:{callback:(v)=>fmt(v), font:{size:10}} }, y:{ ticks:{font:{size:10.5}} } }
+      }
+    });
+
+    const cagrLabel = cagrDiff==null ? '—' :
+      (cagrDiff>=0?'+':'')+cagrDiff.toFixed(1)+' pp vs peer avg ('+peerAvgCagr.toFixed(1)+'%)';
+    document.getElementById('competitive-stats').innerHTML = `
+      <div class="stat-row"><span class="stat-label">Rank in Country (${country})</span><span class="stat-value">#${rankCountry||'—'} of ${inCountry.length}</span></div>
+      <div class="stat-row"><span class="stat-label">Rank in Coastal Region</span><span class="stat-value">#${rankCoastal||'—'} of ${inCoastal.length}</span></div>
+      <div class="stat-row"><span class="stat-label">Share of Country Throughput</span><span class="stat-value">${marketShare!=null?marketShare.toFixed(1)+'%':'—'}</span></div>
+      <div class="stat-row"><span class="stat-label">Closest Competitor by Volume</span><span class="stat-value">${nearest? nearest.port+' ('+fmt(nearest.vol)+' TEU)':'—'}</span></div>
+      <div class="stat-row"><span class="stat-label">10-Yr CAGR vs Peers</span><span class="stat-value">${cagrLabel}</span></div>
+    `;
   }
   renderMaps(){
     const level = document.getElementById('f-level').value;
@@ -344,7 +442,7 @@ class Dashboard{
     const features = this.worldFeatures;
     const dataPoints = features.map(f=>{
       const v = valByNum[String(f.id)] ?? null;
-      return {feature:f, value:v};
+      return {feature:{...f}, value:v};
     });
     const blueScale = this.blueScale;
     const ctx = document.getElementById('choroplethChart').getContext('2d');
@@ -366,7 +464,7 @@ class Dashboard{
           }]
         },
         options:{
-          responsive:true, maintainAspectRatio:false,
+          responsive:true, maintainAspectRatio:false, animation:false,
           showOutline:true, showGraticule:false,
           plugins:{
             legend:{display:false},
@@ -380,31 +478,42 @@ class Dashboard{
       document.getElementById('choroplethChart').closest('.chart-container').innerHTML = '<div class="chart-sub">Map unavailable.</div>';
     }
   }
+  getCountriesInScope(level, entity){
+    if(level==='region') return Object.keys(this.data.country_meta).filter(c=>this.data.country_meta[c].Region===entity);
+    if(level==='coastal') return [...new Set(Object.values(this.data.port_meta).filter(m=>m.CoastalRegion===entity).map(m=>m.Country))];
+    if(level==='country') return [entity];
+    if(level==='port'){ const m = this.data.port_meta[entity]; return m ? [m.Country] : []; }
+    return [];
+  }
   renderPortsMap(){
     const level = document.getElementById('f-level').value;
-    let points = [], title='Port Locations', sub='';
+    let points = [], title='Port Locations', sub='', scopeCountries = [];
     if(level==='global'){
       points = (this.data.top_ports_2024||[]).filter(p=>p.lat!=null&&p.lon!=null).slice(0,30)
         .map(p=>({lat:p.lat, lon:p.lon, value:p.volume_2024, label:p.port}));
       title='Top Global Port Locations'; sub='Top 30 ports by 2024 throughput, sized by volume';
     } else if(level==='region'){
       const region = document.getElementById('f-entity').value;
+      scopeCountries = this.getCountriesInScope('region', region);
       points = Object.entries(this.data.port_meta).filter(([k,m])=>m.Region===region && m.lat!=null)
         .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k}));
       title='Port Locations — '+region; sub=points.length+' ports in region, sized by 2024 throughput';
     } else if(level==='coastal'){
       const coastal = document.getElementById('f-entity').value;
+      scopeCountries = this.getCountriesInScope('coastal', coastal);
       points = Object.entries(this.data.port_meta).filter(([k,m])=>m.CoastalRegion===coastal && m.lat!=null)
         .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k}));
       title='Port Locations — '+coastal; sub=points.length+' ports in coastal region, sized by 2024 throughput';
     } else if(level==='country'){
       const country = document.getElementById('f-entity').value;
+      scopeCountries = this.getCountriesInScope('country', country);
       points = Object.entries(this.data.port_meta).filter(([k,m])=>m.Country===country && m.lat!=null)
         .map(([k,m])=>({lat:m.lat, lon:m.lon, value:(this.data.port[k]||{}).vol_2024||0, label:k}));
       title='Port Locations — '+country; sub=points.length+' ports in country, sized by 2024 throughput';
     } else {
       const port = document.getElementById('f-entity').value;
       const meta = this.data.port_meta[port];
+      scopeCountries = this.getCountriesInScope('port', port);
       if(meta && meta.lat!=null){
         const country = meta.Country;
         points = Object.entries(this.data.port_meta).filter(([k,m])=>m.Country===country && m.lat!=null)
@@ -414,44 +523,94 @@ class Dashboard{
     }
     document.getElementById('ports-map-title').textContent = title;
     document.getElementById('ports-map-sub').textContent = sub;
-    const maxV = Math.max(...points.map(p=>p.value||0), 1);
-    const minR = 3, maxR = 18;
-    const radiusFor = (v)=> minR + Math.sqrt(Math.max(v,0)/maxV) * (maxR-minR);
-    let xMin=-180, xMax=180, yMin=-60, yMax=80;
-    if(level!=='global' && points.length){
-      const lons = points.map(p=>p.lon), lats = points.map(p=>p.lat);
-      const padLon = Math.max((Math.max(...lons)-Math.min(...lons))*0.25, 3);
-      const padLat = Math.max((Math.max(...lats)-Math.min(...lats))*0.25, 3);
-      xMin = Math.max(Math.min(...lons)-padLon, -180); xMax = Math.min(Math.max(...lons)+padLon, 180);
-      yMin = Math.max(Math.min(...lats)-padLat, -60); yMax = Math.min(Math.max(...lats)+padLat, 85);
-    }
     const ctx = document.getElementById('portsMapChart').getContext('2d');
     if(this.charts.portsMap) this.charts.portsMap.destroy();
+    if(!this.worldFeatures){ return; }
+    let outlineFeatures = this.worldFeatures;
+    if(level!=='global'){
+      const numCodes = new Set(scopeCountries.map(c=>{
+        const m = this.data.country_meta[c];
+        return (m && m.numCode!=null) ? String(m.numCode) : null;
+      }).filter(Boolean));
+      const filtered = this.worldFeatures.filter(f=>numCodes.has(String(f.id)));
+      if(filtered.length) outlineFeatures = filtered;
+    }
+    const maxV = Math.max(...points.map(p=>p.value||0), 1);
+    const minR = 4, maxR = level==='global' ? 16 : 14;
+    const radiusFor = (v)=> minR + Math.sqrt(Math.max(v,0)/maxV) * (maxR-minR);
+    const bubblePlugin = {
+      id: 'portBubbles',
+      afterDatasetsDraw: (chart)=>{
+        const scale = chart.scales.projection;
+        if(!scale || !scale.projection) return;
+        const c = chart.ctx;
+        points.forEach(p=>{
+          const xy = scale.projection([p.lon, p.lat]);
+          if(!xy || isNaN(xy[0]) || isNaN(xy[1])) return;
+          const r = radiusFor(p.value);
+          c.save();
+          c.beginPath();
+          c.arc(xy[0], xy[1], r, 0, Math.PI*2);
+          c.fillStyle = p.highlight ? 'rgba(239,138,23,0.85)' : 'rgba(27,108,168,0.7)';
+          c.fill();
+          c.lineWidth = p.highlight ? 2 : 1;
+          c.strokeStyle = p.highlight ? '#c96f0a' : '#0b5a91';
+          c.stroke();
+          c.restore();
+        });
+        if(chart._hoverPort){
+          const p = chart._hoverPort;
+          const xy = scale.projection([p.lon, p.lat]);
+          const text = p.label+': '+fmt(p.value)+' TEU';
+          c.save();
+          c.font = '12px -apple-system,Segoe UI,Arial,sans-serif';
+          const w = c.measureText(text).width + 16;
+          let tx = xy[0]+10, ty = xy[1]-14;
+          if(tx+w > chart.chartArea.right) tx = xy[0]-w-10;
+          c.fillStyle = 'rgba(11,37,69,0.92)';
+          c.fillRect(tx, ty-16, w, 24);
+          c.fillStyle = '#fff';
+          c.fillText(text, tx+8, ty);
+          c.restore();
+        }
+      },
+      afterEvent: (chart, args)=>{
+        const ev = args.event;
+        if(ev.type!=='mousemove' && ev.type!=='mouseout'){ return; }
+        if(ev.type==='mouseout'){ chart._hoverPort=null; args.changed=true; return; }
+        const scale = chart.scales.projection;
+        if(!scale || !scale.projection) return;
+        let best=null, bestDist=14;
+        points.forEach(p=>{
+          const xy = scale.projection([p.lon, p.lat]);
+          const d = Math.hypot(xy[0]-ev.x, xy[1]-ev.y);
+          const r = radiusFor(p.value);
+          if(d <= Math.max(r,bestDist) && (!best || d<best.d)){ best={p,d}; }
+        });
+        const newHover = best ? best.p : null;
+        if(chart._hoverPort !== newHover){ chart._hoverPort = newHover; args.changed = true; }
+      }
+    };
     try{
-      this.charts.portsMap = new Chart(ctx,{
-        type:'scatter',
+      this.charts.portsMap = new ChartGeo.ChoroplethChart(ctx,{
         data:{
+          labels: outlineFeatures.map(f=>f.properties.name),
           datasets:[{
-            label:'Ports',
-            data: points.map(p=>({x:p.lon, y:p.lat, v:p.value, label:p.label})),
-            backgroundColor: points.map(p=> p.highlight ? '#ef8a17cc' : '#1b6ca8aa'),
-            borderColor: points.map(p=> p.highlight ? '#c96f0a' : '#0b5a91'),
-            borderWidth: points.map(p=> p.highlight ? 2 : 1),
-            radius: points.map(p=> radiusFor(p.value)),
-            hoverRadius: points.map(p=> radiusFor(p.value)+2),
+            label:'Outline',
+            outline: outlineFeatures,
+            showOutline:true,
+            data: outlineFeatures.map(f=>({feature:{...f}, value:0})),
+            backgroundColor: level==='global' ? '#eef1f5' : '#dbe5ee',
+            borderColor:'#b9c4ce', borderWidth:0.6
           }]
         },
         options:{
-          responsive:true, maintainAspectRatio:false,
-          plugins:{
-            legend:{display:false},
-            tooltip:{callbacks:{label:(c)=>{ const d=c.raw; return d.label+': '+fmt(d.v)+' TEU'; }}}
-          },
-          scales:{
-            x:{ min:xMin, max:xMax, grid:{color:'#eef1f5'}, title:{display:true,text:'Longitude',font:{size:10}}, ticks:{font:{size:9}} },
-            y:{ min:yMin, max:yMax, grid:{color:'#eef1f5'}, title:{display:true,text:'Latitude',font:{size:10}}, ticks:{font:{size:9}} }
-          }
-        }
+          responsive:true, maintainAspectRatio:false, animation:false,
+          showOutline:true, showGraticule:false,
+          plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+          scales:{ projection:{ axis:'x', projection:'equalEarth' }, color:{ axis:'x', display:false, legend:{display:false} } }
+        },
+        plugins:[bubblePlugin]
       });
     }catch(e){
       console.error('Ports map render failed', e);
