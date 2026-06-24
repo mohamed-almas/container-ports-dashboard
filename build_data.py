@@ -144,16 +144,30 @@ for _, row in port_meta_df.iterrows():
     }
 
 # country meta: region mapping + ISO numeric code (for choropleth join) + representative lat/lon (mean of its ports)
-country_num = geo_small.dropna(subset=['Country']).groupby('Country')['numCode'].first()
+# Use pycountry as the authoritative ISO-3166-1 numeric source (derived from iso3Code) rather than
+# trusting the source spreadsheet's numCode column, which has known errors (e.g. India listed as 699
+# instead of 356, Norway 579 vs 578, Switzerland 757 vs 756) that silently broke the choropleth map join.
+import pycountry
+def iso3_to_numeric(iso3):
+    if not isinstance(iso3, str):
+        return None
+    c = pycountry.countries.get(alpha_3=iso3)
+    return int(c.numeric) if c else None
+
+country_iso3 = geo_small.dropna(subset=['Country']).groupby('Country')['iso3Code'].first()
+country_num_fallback = geo_small.dropna(subset=['Country']).groupby('Country')['numCode'].first()
 country_latlon = geo_small.dropna(subset=['Country']).groupby('Country')[['portLat','portLon']].mean()
 country_meta = {}
 for c in geo_small['Country'].dropna().unique():
     region_row = geo_small.loc[geo_small['Country']==c, 'Region']
-    nc = country_num.get(c)
+    nc = iso3_to_numeric(country_iso3.get(c))
+    if nc is None:
+        fb = country_num_fallback.get(c)
+        nc = None if (fb is None or pd.isna(fb)) else int(fb)
     ll = country_latlon.loc[c] if c in country_latlon.index else None
     country_meta[c] = {
         'Region': region_row.iloc[0] if len(region_row) else None,
-        'numCode': None if (nc is None or pd.isna(nc)) else int(nc),
+        'numCode': nc,
         'lat': None if ll is None or pd.isna(ll['portLat']) else round(float(ll['portLat']),4),
         'lon': None if ll is None or pd.isna(ll['portLon']) else round(float(ll['portLon']),4),
     }

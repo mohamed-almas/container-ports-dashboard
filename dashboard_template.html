@@ -6,6 +6,9 @@
 <title>Global Container Port Throughput & Capacity Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-geo@4.3.4/build/index.umd.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-array@3" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-geo@3" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4" crossorigin="anonymous"></script>
 <style>
 :root{
   --bg-primary:#eef1f5;
@@ -60,7 +63,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 
 .chart-row{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--gap);margin-bottom:var(--gap);}
 .chart-row.three{grid-template-columns:1fr 1fr 1fr;}
-.chart-row.single-map{grid-template-columns:1fr;}
+.chart-row.single-map{grid-template-columns:1fr 1fr;}
 .chart-container{background:var(--bg-card);border-radius:var(--radius);padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
 .chart-container h3{font-size:13.5px;font-weight:700;margin-bottom:2px;}
 .chart-container .chart-sub{font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;}
@@ -121,8 +124,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
         <div class="subtitle">Annual TEU throughput, nominal capacity &amp; utilization across __NUM_PORTS__ ports, __NUM_COUNTRIES__ countries and 6 world regions</div>
       </div>
       <div class="header-meta">
-        Data through 2024 actuals (2025-2030 indicative)<br>
-        Source: ADPG port &amp; geo master file
+        Data through 2024 actuals (2025-2030 indicative)
       </div>
     </div>
     <div class="filters">
@@ -235,6 +237,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 const DATA = __DATA_JSON__;
 const COLORS = ['#1b6ca8','#ef8a17','#2a9d8f','#e76f51','#8d6fb8','#4b8b3b','#c9444d','#5b6b7c','#1d8a99','#b08968'];
 
+function pad3(n){ return String(n).padStart(3,'0'); }
 function fmt(v, decimals=1){
   if(v===null||v===undefined||isNaN(v)) return '—';
   const abs = Math.abs(v);
@@ -434,14 +437,14 @@ class Dashboard{
       const meta = this.data.country_meta[country];
       if(!meta || meta.numCode===null || meta.numCode===undefined) continue;
       const v = this.data.country[country].vol_2024;
-      if(v) valByNum[String(meta.numCode)] = v;
+      if(v) valByNum[pad3(meta.numCode)] = v;
     }
     const vals = Object.values(valByNum);
     const max = Math.max(...vals, 1);
     const min = Math.min(...vals, 0);
     const features = this.worldFeatures;
     const dataPoints = features.map(f=>{
-      const v = valByNum[String(f.id)] ?? null;
+      const v = valByNum[pad3(f.id)] ?? null;
       return {feature:{...f}, value:v};
     });
     const blueScale = this.blueScale;
@@ -530,9 +533,9 @@ class Dashboard{
     if(level!=='global'){
       const numCodes = new Set(scopeCountries.map(c=>{
         const m = this.data.country_meta[c];
-        return (m && m.numCode!=null) ? String(m.numCode) : null;
+        return (m && m.numCode!=null) ? pad3(m.numCode) : null;
       }).filter(Boolean));
-      const filtered = this.worldFeatures.filter(f=>numCodes.has(String(f.id)));
+      const filtered = this.worldFeatures.filter(f=>numCodes.has(pad3(f.id)));
       if(filtered.length) outlineFeatures = filtered;
     }
     const maxV = Math.max(...points.map(p=>p.value||0), 1);
@@ -608,7 +611,7 @@ class Dashboard{
           responsive:true, maintainAspectRatio:false, animation:false,
           showOutline:true, showGraticule:false,
           plugins:{ legend:{display:false}, tooltip:{enabled:false} },
-          scales:{ projection:{ axis:'x', projection:'equalEarth' }, color:{ axis:'x', display:false, legend:{display:false} } }
+          scales:{ projection:{ axis:'x', projection: (typeof d3!=='undefined' && d3.geoMiller) ? d3.geoMiller() : 'equirectangular' }, color:{ axis:'x', display:false, legend:{display:false} } }
         },
         plugins:[bubblePlugin]
       });
@@ -699,24 +702,31 @@ class Dashboard{
   renderTrendChart(){
     const s = this.getSeries();
     document.getElementById('trend-title').textContent = s.label + ' — Annual Throughput Trend';
+    const histEnd = (this.data.meta && this.data.meta.hist_end) || 2024;
+    const actual = s.volumes.map((v,i)=> s.years[i] <= histEnd ? v : null);
+    const forecast = s.volumes.map((v,i)=> s.years[i] > histEnd ? v : null);
+    const yoy = s.volumes.map((v,i)=> (i>0 && s.volumes[i-1]) ? ((v/s.volumes[i-1]-1)*100) : null);
     const ctx = document.getElementById('trendChart').getContext('2d');
     if(this.charts.trend) this.charts.trend.destroy();
     this.charts.trend = new Chart(ctx,{
       data:{
         labels: s.years,
         datasets:[
-          {type:'bar', label:'Throughput (TEU)', data:s.volumes, backgroundColor:'#1b6ca8CC', borderRadius:3, order:2, yAxisID:'y'},
-          {type:'line', label:'Capacity (TEU)', data:s.capacities, borderColor:'#ef8a17', backgroundColor:'#ef8a1720', borderWidth:2, pointRadius:0, tension:.25, order:1, yAxisID:'y', spanGaps:true}
+          {type:'bar', label:'Throughput — Actual (TEU)', data:actual, backgroundColor:'#1b6ca8CC', borderRadius:3, order:3, yAxisID:'y', stack:'vol'},
+          {type:'bar', label:'Throughput — Forecast (TEU)', data:forecast, backgroundColor:'#ef8a1799', borderRadius:3, order:3, yAxisID:'y', stack:'vol'},
+          {type:'line', label:'Capacity (TEU)', data:s.capacities, borderColor:'#8d6fb8', backgroundColor:'#8d6fb820', borderWidth:2, pointRadius:0, tension:.25, order:2, yAxisID:'y', spanGaps:true},
+          {type:'line', label:'YoY Growth (%)', data:yoy, borderColor:'#2a9d8f', backgroundColor:'#2a9d8f', borderWidth:2, pointRadius:2, tension:.25, order:1, yAxisID:'y1', spanGaps:true}
         ]
       },
       options:{
         responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index', intersect:false},
-        plugins:{legend:{position:'top', labels:{usePointStyle:true, boxWidth:8, font:{size:11}}},
-          tooltip:{callbacks:{label:(c)=>c.dataset.label+': '+fmt(c.parsed.y)+' TEU'}}},
+        plugins:{legend:{position:'top', labels:{usePointStyle:true, boxWidth:8, font:{size:10.5}}},
+          tooltip:{callbacks:{label:(c)=> c.dataset.yAxisID==='y1' ? c.dataset.label+': '+fmtPct(c.parsed.y) : c.dataset.label+': '+fmt(c.parsed.y)+' TEU'}}},
         scales:{
           x:{grid:{display:false}, ticks:{maxRotation:0, autoSkip:true, font:{size:10}}},
-          y:{beginAtZero:true, ticks:{callback:(v)=>fmt(v), font:{size:10}}}
+          y:{beginAtZero:true, ticks:{callback:(v)=>fmt(v), font:{size:10}}, title:{display:true,text:'TEU',font:{size:10}}},
+          y1:{position:'right', grid:{display:false}, ticks:{callback:(v)=>v+'%', font:{size:10}}, title:{display:true,text:'YoY %',font:{size:10}}}
         }
       }
     });
