@@ -2,3 +2,6 @@
 *.log
 __pycache__/
 _work.xlsx
+dashboard_data.json
+*.csv
+Container Ports.xlsx
