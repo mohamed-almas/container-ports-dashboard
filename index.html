@@ -81,6 +81,62 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
 .insight-card h4{font-size:12.5px;font-weight:700;margin-bottom:6px;}
 .insight-card p{font-size:12.5px;color:var(--text-secondary);}
 
+/* ── Market Intelligence Panel ─────────────────────────── */
+.insights-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px;flex-wrap:wrap;}
+.insights-header h2{margin-bottom:2px;}
+.insights-entity-label{font-size:12px;color:var(--text-secondary);margin-top:3px;}
+.generate-btn{
+  display:flex;align-items:center;gap:7px;
+  background:var(--c1);color:#fff;border:none;border-radius:7px;
+  padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;
+  white-space:nowrap;flex-shrink:0;transition:background .15s;
+}
+.generate-btn:hover{background:#155d9a;}
+.generate-btn:disabled{background:#8ab0cc;cursor:wait;}
+.exec-summary{
+  background:linear-gradient(90deg,#f0f5fb,#eef1f5);
+  border-left:4px solid var(--c1);border-radius:0 8px 8px 0;
+  padding:11px 16px;font-size:13px;color:var(--text-primary);
+  line-height:1.6;margin-bottom:14px;
+}
+.insight-card-live{
+  background:#f6f8fb;border-radius:8px;padding:14px 16px;
+  border-top:3px solid var(--c1);
+  display:flex;flex-direction:column;gap:6px;
+}
+.insight-tag{
+  display:inline-block;padding:2px 9px;border-radius:10px;
+  font-size:10.5px;font-weight:700;color:#fff;letter-spacing:.3px;
+  width:fit-content;
+}
+.insight-card-live h4{font-size:12.5px;font-weight:700;color:var(--text-primary);margin:0;}
+.insight-card-live p{font-size:12.5px;color:var(--text-secondary);margin:0;line-height:1.55;}
+.insights-placeholder{
+  grid-column:1/-1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:10px;padding:32px 20px;
+  text-align:center;color:var(--text-secondary);font-size:13px;
+}
+.placeholder-icon{font-size:28px;opacity:.35;}
+.insights-loading{
+  grid-column:1/-1;display:flex;flex-direction:column;align-items:center;
+  gap:12px;padding:28px;color:var(--text-secondary);font-size:13px;
+}
+.insights-spinner{
+  width:32px;height:32px;border:3px solid #d0dae5;
+  border-top-color:var(--c1);border-radius:50%;
+  animation:sb-spin 1s linear infinite;
+}
+.insights-error{
+  grid-column:1/-1;padding:14px 16px;background:#fbe7e5;
+  border-radius:8px;color:var(--negative);font-size:13px;
+}
+.insights-meta{
+  font-size:11px;color:var(--text-secondary);
+  margin-top:10px;display:flex;align-items:center;gap:8px;
+}
+.cached-badge{background:#e2f5e9;color:var(--positive);padding:1px 7px;border-radius:10px;font-weight:700;font-size:10px;}
+.fresh-badge{background:#e8f0fb;color:var(--c1);padding:1px 7px;border-radius:10px;font-weight:700;font-size:10px;}
+
 .table-section{background:var(--bg-card);border-radius:var(--radius);padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow-x:auto;margin-bottom:var(--gap);}
 .table-section h3{font-size:13.5px;font-weight:700;margin-bottom:4px;}
 .table-section .chart-sub{font-size:11.5px;color:var(--text-secondary);margin-bottom:10px;}
@@ -215,8 +271,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-s
   </section>
 
   <section class="insights-section">
-    <h2>Executive Insights &amp; Analysis <span class="badge">AI-generated, data + industry research</span></h2>
-    <div class="insight-grid" id="insight-grid"></div>
+    <div class="insights-header">
+      <div>
+        <h2>Market Intelligence <span class="badge">Claude + Tavily · live industry research</span></h2>
+        <div class="insights-entity-label" id="insights-entity-label">Select a view above, then click Generate Insights</div>
+      </div>
+      <button class="generate-btn" id="generate-btn" onclick="dash.generateInsights()">&#10022; Generate Insights</button>
+    </div>
+    <div id="insights-exec-summary" class="exec-summary" style="display:none;"></div>
+    <div class="insight-grid" id="insight-grid">
+      <div class="insights-placeholder">
+        <div class="placeholder-icon">&#10022;</div>
+        <div>Click <b>Generate Insights</b> to get AI-powered market intelligence combining your port data with live industry news</div>
+      </div>
+    </div>
+    <div id="insights-meta" class="insights-meta" style="display:none;"></div>
   </section>
 
   <section class="table-section">
@@ -289,7 +358,7 @@ class Dashboard{
   }
   init(){
     this.onLevelChange();
-    this.renderInsights();
+    this.resetInsights();
     this.renderTable();
   }
   async loadWorldMap(){
@@ -370,6 +439,7 @@ class Dashboard{
     this.renderBreadcrumb();
     this.renderMaps();
     this.renderCompetitive();
+    this.resetInsights();
   }
   renderCompetitive(){
     const level = document.getElementById('f-level').value;
@@ -873,17 +943,141 @@ class Dashboard{
       }
     });
   }
-  renderInsights(){
-    const insights = [
-      {cls:'', h:'Asia consolidates its dominance', p:'Asia accounts for the large majority of global container throughput, led by China\'s North East Asia coastal cluster (Shanghai, Ningbo, Shenzhen, Qingdao). Shanghai alone handled over 51M TEU in 2024 and has held the #1 global rank since at least 2014, consistent with external industry data showing China handling 301M+ TEU nationally in 2024, up ~8% YoY.'},
-      {cls:'o2', h:'Capacity is tightening in key hubs', p:'Several top-20 ports — including Ningbo and Tianjin — show modeled utilization above 100% of nominal capacity, signalling sustained reliance on yard optimization, faster turnaround and berth productivity gains rather than physical capacity expansion. This mirrors 2025 industry reports of an 18-month congestion high across major Asian gateways.'},
-      {cls:'o3', h:'Mid-tier challengers are climbing fastest', p:'Ports such as Ningbo, Qingdao and Port Klang have gained 2-3 places in the global top-10 over the past decade, while legacy hubs with slower CAGRs are slipping. Vietnam-linked gateways and selected Middle East transshipment hubs (e.g. Jebel Ali) also show resilient growth, aligning with reported 16% YoY growth for Vietnamese ports in 2024.'},
-      {cls:'o4', h:'Red Sea diversion reshaping regional flows', p:'2025 industry reporting confirms ongoing Red Sea/Suez disruption has pushed traffic around the Cape of Good Hope, inflating volumes at Mediterranean and North West Europe transshipment ports and straining Singapore and Port Klang. A prospective return to Suez risks a sharp congestion wave in Europe followed by an Asian equipment-shortage echo 8-9 weeks later — a key watch-item for 2026 capacity planning.'},
-      {cls:'', h:'Global growth outlook remains constructive', p:'External 2025 estimates point to global container throughput reaching roughly 937M TEU (+7% YoY) in 2024, with global handling capacity forecast to grow ~4.8% (+64M TEU) in 2025 — the largest absolute annual increase since the financial crisis — before growth moderates toward 2027.'},
-      {cls:'o2', h:'Regional CAGR dispersion signals where to invest', p:'Use the Region and Coastal Region views to compare 10-year CAGR against current utilization: regions combining high CAGR with high utilization (>85%) are the clearest near-term capacity expansion candidates, while low-utilization, low-growth regions may indicate overbuilt or underperforming capacity.'}
-    ];
-    document.getElementById('insight-grid').innerHTML = insights.map(i=>`
-      <div class="insight-card ${i.cls}"><h4>${i.h}</h4><p>${i.p}</p></div>`).join('');
+  resetInsights(){
+    const level = document.getElementById('f-level').value;
+    const entity = level==='global' ? 'Global Container Trade' : (document.getElementById('f-entity').value||'');
+    document.getElementById('insights-entity-label').textContent =
+      `Scope: ${entity} — click Generate Insights for AI-powered analysis`;
+    document.getElementById('insight-grid').innerHTML = `
+      <div class="insights-placeholder">
+        <div class="placeholder-icon">&#10022;</div>
+        <div>Click <b>Generate Insights</b> to get Claude + Tavily market intelligence for <b>${entity}</b></div>
+      </div>`;
+    document.getElementById('insights-exec-summary').style.display = 'none';
+    document.getElementById('insights-meta').style.display = 'none';
+  }
+
+  buildMetrics(){
+    const level = document.getElementById('f-level').value;
+    const s = this.getSeries();
+    const allYears = level==='global' ? this.data.global.years : (() => {
+      const entity = document.getElementById('f-entity').value;
+      const dict = level==='region'?this.data.region:level==='coastal'?this.data.coastal_region:level==='country'?this.data.country:this.data.port;
+      return (dict[entity]||{}).years || s.years;
+    })();
+
+    const getVol = yr => {
+      const i = s.years.indexOf(yr); return i>=0 ? s.volumes[i] : null;
+    };
+    const vol2024 = getVol(2024);
+    const vol2023 = getVol(2023);
+    const vol2019 = getVol(2019);
+    const vol2014 = getVol(2014);
+    const vol2030 = getVol(2030);
+    const util2024 = (() => { const i=s.years.indexOf(2024); return i>=0?s.utilization[i]:null; })();
+
+    const yoy = (vol2024&&vol2023) ? ((vol2024/vol2023-1)*100) : null;
+    const cagr10 = (vol2024&&vol2014) ? ((vol2024/vol2014)**(1/10)-1)*100 : null;
+    const cagr5  = (vol2024&&vol2019) ? ((vol2024/vol2019)**(1/5)-1)*100  : null;
+    const cagrFc = this.getCagrFc();
+
+    let rank=null, rank_change=null;
+    if(level==='port'){
+      const port = document.getElementById('f-entity').value;
+      const topPort = (this.data.top_ports_2024||[]).find(r=>r.port===port);
+      if(topPort){ rank=topPort.rank; rank_change=topPort.rank_change; }
+    }
+
+    return {
+      vol_2024: vol2024, yoy_2024: yoy, cagr_10y: cagr10,
+      cagr_5y: cagr5, cagr_fc: cagrFc,
+      utilization: util2024, vol_2030: vol2030,
+      rank, rank_change
+    };
+  }
+
+  async generateInsights(){
+    const level = document.getElementById('f-level').value;
+    const typeMap = {global:'global', region:'region', coastal:'coastal_region', country:'country', port:'port'};
+    const entity_type = typeMap[level];
+    const entity_name = level==='global' ? 'Global Container Trade' : document.getElementById('f-entity').value;
+
+    const btn = document.getElementById('generate-btn');
+    const grid = document.getElementById('insight-grid');
+    btn.disabled = true; btn.textContent = 'Generating…';
+    document.getElementById('insights-exec-summary').style.display = 'none';
+    document.getElementById('insights-meta').style.display = 'none';
+    grid.innerHTML = `
+      <div class="insights-loading">
+        <div class="insights-spinner"></div>
+        <div>Searching industry sources &amp; synthesizing insights for <b>${entity_name}</b>…</div>
+      </div>`;
+
+    try {
+      const metrics = this.buildMetrics();
+      const context = {};
+      if(level==='port'){
+        const meta = this.data.port_meta[entity_name]||{};
+        context.country = meta.Country; context.coastal_region = meta.CoastalRegion;
+        context.region = (this.data.country_meta||{})[meta.Country]?.Region;
+        const inCoastal = Object.entries(this.data.port)
+          .filter(([k])=>(this.data.port_meta[k]||{}).CoastalRegion===meta.CoastalRegion && k!==entity_name)
+          .sort((a,b)=>(b[1].vol_2024||0)-(a[1].vol_2024||0)).slice(0,4).map(([k])=>k);
+        if(inCoastal.length) context.peers = inCoastal;
+      } else if(level==='country'){
+        const meta = (this.data.country_meta||{})[entity_name]||{};
+        context.region = meta.Region; context.coastal_region = meta.CoastalRegion;
+      } else if(level==='coastal'){
+        const firstPort = Object.keys(this.data.port).find(k=>(this.data.port_meta[k]||{}).CoastalRegion===entity_name);
+        if(firstPort) context.region = (this.data.country_meta||{})[(this.data.port_meta[firstPort]||{}).Country]?.Region;
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-insights`, {
+        method:'POST',
+        headers:{ 'Authorization':`Bearer ${SUPABASE_KEY}`, 'Content-Type':'application/json' },
+        body: JSON.stringify({ entity_type, entity_name, metrics, context })
+      });
+      if(!res.ok){ const t=await res.text(); throw new Error(`HTTP ${res.status}: ${t.slice(0,200)}`); }
+      const result = await res.json();
+      this._renderInsightCards(result);
+    } catch(err){
+      grid.innerHTML = `<div class="insights-error">&#9888; Failed to generate insights: ${err.message}</div>`;
+      console.error('generateInsights error', err);
+    } finally {
+      btn.disabled = false; btn.textContent = '&#10022; Generate Insights';
+    }
+  }
+
+  _renderInsightCards(data){
+    const { insights, executive_summary, generated_at, cached } = data;
+    const tagColors = {
+      Growth:'#1e8a4c', Risk:'#d1473a', Opportunity:'#ef8a17',
+      Trend:'#1b6ca8', Geopolitical:'#8d6fb8'
+    };
+    const sentIcon = s => s==='positive'?'↑':s==='negative'?'↓':'→';
+
+    const execEl = document.getElementById('insights-exec-summary');
+    if(executive_summary){ execEl.textContent = executive_summary; execEl.style.display='block'; }
+
+    const grid = document.getElementById('insight-grid');
+    if(!insights||!insights.length){
+      grid.innerHTML = '<div class="insights-placeholder"><div>No insights returned — try again.</div></div>';
+      return;
+    }
+    grid.innerHTML = insights.map(ins=>{
+      const col = tagColors[ins.tag]||'#1b6ca8';
+      return `<div class="insight-card-live" style="border-top-color:${col}">
+        <div class="insight-tag" style="background:${col}">${ins.tag||'Insight'} ${sentIcon(ins.sentiment)}</div>
+        <h4>${ins.title||''}</h4>
+        <p>${ins.body||''}</p>
+      </div>`;
+    }).join('');
+
+    const metaEl = document.getElementById('insights-meta');
+    const ts = generated_at ? new Date(generated_at).toLocaleString() : '';
+    metaEl.innerHTML = `${cached?'<span class="cached-badge">Cached</span>':'<span class="fresh-badge">Fresh</span>'}
+      Generated ${ts} &middot; Claude Sonnet 4.5 + Tavily web search`;
+    metaEl.style.display = 'flex';
   }
   renderTable(){
     const search = (document.getElementById('table-search').value||'').toLowerCase();
