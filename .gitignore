@@ -5,3 +5,5 @@ _work.xlsx
 dashboard_data.json
 *.csv
 Container Ports.xlsx
+
+dist/
